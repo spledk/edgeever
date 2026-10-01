@@ -9,7 +9,6 @@ import {
   AI_SIDEBAR_ADAPTER_KEY,
   AI_SIDEBAR_ADAPTER_PATH_KEY,
   AI_SIDEBAR_SOURCE_KEY,
-  displayedDesktopAcpAdapter,
   listDesktopAcpAdapters,
   installDesktopAcpAdapter,
   authenticateDesktopAcpAdapter,
@@ -117,7 +116,10 @@ const DesktopAcpAgentCardBody = ({ bridge }: { bridge: boolean }) => {
     };
   }, []);
 
-  const shown = displayedDesktopAcpAdapter({ id: adapterId, path: adapterPath, listed, probed });
+  const listedCurrent = listed.find((adapter) => adapter.id === adapterId);
+  const shown = listedCurrent?.state === "installing" || (listedCurrent?.managed && (!probed?.managed || listedCurrent.version !== probed.version))
+    ? listedCurrent
+    : probed?.id === adapterId ? probed : listedCurrent;
   const status = t(statusKey(shown, probing));
   const tone = getStatusTone({
     probing,

@@ -10,7 +10,6 @@ import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION, RequestError } fr
 import { waitForChildProcessSpawn } from "./child-process-start.mjs";
 import { createAcpAdapterManager } from "./acp-adapter-manager.mjs";
 import { startAcpMcpBridge } from "./acp-mcp-bridge.mjs";
-import { withAntigravityMacProxy } from "./antigravity-proxy.mjs";
 
 const ADAPTERS = {
   codex: { id: "codex", label: "Codex" },
@@ -688,15 +687,12 @@ export function createAcpHostRuntime(options = {}) {
     ],
   });
 
-  const resolveCommand = (input, { prepareProxy = true } = {}) => {
-    const adapt = (resolution) => prepareProxy && input?.id === "antigravity" && resolution.ok
-      ? { ...resolution, command: withAntigravityMacProxy(resolution.command, commandDeps) }
-      : resolution;
-    if (input?.id === "antigravity" && typeof input.path === "string" && input.path.trim()) return adapt(resolveAcpCommand(input, commandDeps));
+  const resolveCommand = (input) => {
+    if (input?.id === "antigravity" && typeof input.path === "string" && input.path.trim()) return resolveAcpCommand(input, commandDeps);
     if (input?.id === "piAgent" && !localExecutable("pi", resolutionDeps(commandDeps))) return { ok: false, state: "not_installed" };
     const managed = manager?.get(input?.id);
-    if (managed) return adapt({ ok: true, command: input?.id === "piAgent" ? withPiPath(managed.command, resolutionDeps(commandDeps)) : managed.command, version: managed.version, managed: true });
-    return adapt(resolveAcpCommand(input, commandDeps));
+    if (managed) return { ok: true, command: input?.id === "piAgent" ? withPiPath(managed.command, resolutionDeps(commandDeps)) : managed.command, version: managed.version, managed: true };
+    return resolveAcpCommand(input, commandDeps);
   };
 
   const connect = async (command, requestId, emit, signal, authMethodId, mcpServers = []) => {
@@ -758,7 +754,7 @@ export function createAcpHostRuntime(options = {}) {
     listAdapters() {
       return ["codex", "claudeCode", "antigravity", "openClaw", "hermesAgent", "grokBuild", "deepseekHarness", "piAgent", "workbuddyCn", "workbuddyIntl"].map((id) => {
         if (installingIds.has(id)) return { ...adapterShell(id), state: "installing" };
-        const resolved = resolveCommand({ id }, { prepareProxy: false });
+        const resolved = resolveCommand({ id });
         return resolved.ok
           ? { ...adapterShell(id), ...(latestStatus.get(id) ?? { state: "failed", detail: "not_probed" }), ...(resolved.version ? { version: resolved.version, managed: true } : {}), ...(updateFailures.has(id) ? { updateError: updateFailures.get(id) } : {}) }
           : adapterFromResolution(id, resolved);
@@ -773,9 +769,7 @@ export function createAcpHostRuntime(options = {}) {
         const result = await manager.install(id, async (command) => {
           let connected;
           try {
-            const prepared = id === "piAgent" ? withPiPath(command, resolutionDeps(commandDeps))
-              : id === "antigravity" ? withAntigravityMacProxy(command, commandDeps) : command;
-            connected = await withHandshakeTimeout((signal) => connect(prepared, `install-${id}`, () => {}, signal), 90_000);
+            connected = await withHandshakeTimeout((signal) => connect(id === "piAgent" ? withPiPath(command, resolutionDeps(commandDeps)) : command, `install-${id}`, () => {}, signal), 90_000);
             return { ...adapterShell(id), state: "available", promptCapabilities: connected.promptCapabilities };
           } catch (error) {
             return { ...adapterShell(id), ...failureFields(classifyAcpFailure(error)), ...(isAuthRequiredError(error) ? { authMethods: error.authMethods ?? [] } : {}) };
